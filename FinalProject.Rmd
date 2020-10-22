@@ -1,0 +1,1182 @@
+---
+title: ''
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.width=12, fig.height=4) 
+```
+
+<center>
+<h1 style = "font-family: Ubuntu"><span style="color:#E95420">Modeling and prediction</span><br><span style="color:#77216F">of Nitrogen Dioxide ($\small{NO_2}$) levels in urban areas</span></h1>
+
+<h4 style = "font-family: Ubuntu"><span style="color:grey">Final project for the course of</span><br><span style="color:grey">Statistical Methods of Data Science</span></h4>
+</center>
+
+<p style = "font-family: Ubuntu"><span style="color:grey">Submitted by: Francesco Russo, 1449025</span><span style = "float:right"><span style="color:grey">Submitted to: Prof. Luca Tardella</span></p>
+
+<center>
+<h4 style = "font-family: Ubuntu"><span style="color:#E95420">Introduction</span></h4>
+</center>
+
+<p style = "font-family: Ubuntu">
+</p>
+
+
+The air of modern cities contains several different pollutants. Many of them are the direct product of combustion processes in industrial facilities and vehicles powered by fossile fuels, and are therefore known as **primary pollutants**.
+
+These include **Carbon Monoxide** $CO$, **Carbon Dioxide** $CO_2$, **Nitric Oxide** $NO$, and the microscopic solid particles known as $PM2.5$ and $PM10$. 
+
+Other substances, like Ozone $O_3$ and Nitric Acid $HNO_3$ are instead the product of **chemical reactions** among the primary pollutants, and are therefore known as **secondary pollutants**.
+
+Lastly, in the case of **Nitrogen Dioxide** $NO_2$, only a small percentage (less than $5 \%$) is the direct product of combustion processes, i.e. linked to primary pollution, while most of it is obtained as a product of the **chemical reactions** involving $NO$ and $O_3$, i.e. through secondary pollution. Indeed we have that:
+
+\[
+NO + O_3 \rightarrow NO_2 + O_2
+\]
+
+<center>
+<p><img float: center;" src ="reaction.png" width = "500" height = "200"/></p>
+</center>
+
+and
+
+\[
+2NO + O_2 \rightarrow 2NO_2
+\]
+
+<center>
+<p><img float: center;" src ="reaction2.png" width = "380" height = "140"/></p>
+</center>
+
+The chronic exposure to Nitrogen Dioxide can cause **airway inflammation** and therefore respiratory problems, which are way more harmful for people with pre-existing respiratory issues like asthma, or lung diseases.
+
+Furthermore, high concentrations of $NO_2$ in the air can react with the water in the atmosphere producing **Nitric Acid** $HNO_3$ through the reaction:
+
+\[
+3NO_2 + H_2O \rightarrow HNO_3 + NO
+\]
+
+The presence of Nitric Acid in the atmosphere is at the root of phenomena like **acid rains**, and all the related problems for people and infrastuctures.
+
+The goal of this project, inspired by the paper http://www.aaqr.org/files/article/1089/4_AAQR-10-07-OA-0055_128-139.pdf (Han S. et al., Aerosol and Air Quality Research, 11: 128–139, 2011) is to create a fully bayesian regression model, capable of predicting the level of the Nitrogen Dioxide $NO_2$ in an urban area (i.e. Madrid), knowing the concentration of Nitric Oxide $NO$ and Ozone $O_3$. The dataset we are going to use is freely available on the Kaggle website at https://www.kaggle.com/decide-soluciones/air-quality-madrid in the form of the **.csv** files <code>madrid_2018.csv</code> and <code>stations.csv</code>. The file <code>madrid_2018.csv</code> contains hourly averages for several pollutants, measured by 24 different control stations in Madrid, over a timespan of about 5 months (January ~ May) in 2018. However, we are only going to use the data for one day, January 2nd 2018. The file <code>stations.csv</code> contains additional information about the control stations (i.e., latitude, longitude, elevation).
+
+```{r eval=FALSE}
+main_file = read.csv("madrid_2018.csv")
+main_file = main_file[51793:52368,]
+station_file = read.csv("stations.csv")
+```
+
+The elevation of the control stations will be used in the bayesian analysis, so, as a first step, we are going to insert this information into the main file, creating the new dataset <code>madrid_2018_mod.csv</code> (of course, we need to perform this operation only once)
+
+```{r eval=FALSE}
+elevation = c()
+
+for (i in 1:nrow(main_file)){
+  elevation[i] = station_file[station_file$id == main_file$station[i],]$elevation
+}
+
+main_file$elevation = elevation
+
+write.csv(main_file, file = "madrid_2018_mod.csv")
+```
+
+<center>
+<h4 style = "font-family: Ubuntu"><span style="color:#E95420">Theoretical framework</span><br><br><span style="color:darkgrey">Chemico-Physical<br>model</span></h4>
+</center>
+
+We have seen how **Nitric Oxide** $NO$ and **Oxygen** $O_2$ and **Ozone** $O_3$ can react to form **Nitrogen Dioxide** $NO_2$ through the **redox reactions**:
+
+\[
+NO + O_3 \rightarrow NO_2 + O_2 \quad \quad \text{and} \quad \quad 2NO + O_2 \rightarrow 2NO_2
+\]
+
+so that summing the corresponding members of the two reactions we get:
+
+\[
+3NO + O_3 \rightarrow 3NO_2
+\]
+
+We also know from basic chemistry that in every reaction $\alpha A + \beta B \rightarrow \gamma C$ we have a **reaction quotient**:
+
+\[
+Q = \frac{[C]^{\gamma}}{[A]^{\alpha}[B]^{\beta}}
+\]
+
+where the $[\quad]$ notation, as usual in chemistry, stands for the density of the substance.
+
+The reaction quotient, at the equilibrium, is equal to the **reaction constant** $K$.
+
+In our case, when we reach **equilibrium**, we therefore have the following relation between concentrations:
+
+\[
+K = \frac{[NO_2]^3}{[NO]^3[O_3]}
+\]
+
+and switching to the **logarithms** we get the equation:
+
+
+\[
+3\text{log}[NO_2] = 3\text{log}[NO] + \text{log}[O_3] + \text{log}K
+\]
+
+which is a **linear relation** among the logarithmic concentrations.
+
+It's therefore reasonable to expect the $\text{log}[NO_2]$ to be **linearly correlated** to the $\text{log}[NO]$ and $\text{log}[O_3]$ in our data.
+
+We may now think to model the relation among the reactants with the linear equation:
+
+\[
+Y = a_1 X_1 + a_2 X_2 + b
+\]
+
+where $Y = \text{log}[NO_2]$, $X_1 = \text{log}[NO]$, $X_2 = \text{log}[O_3]$
+
+We should notice, however, that the concentration of the $O_3$ is actually the result of more complicated cycles.
+
+Indeed, the $O_3$ can be splitted by the interaction with th UV radiation of the sun through the photolysis processes:
+
+\[
+O_3 + h \nu \rightarrow O_2 + O
+\]
+
+The molecular Oxygen $O_2$ itself can undergo photolysis:
+
+\[
+O_2 + h \nu \rightarrow 2O
+\]
+
+and then recombine with the atomic Oxygen, to form Ozone:
+
+\[
+O_2 + O \rightarrow O_3
+\]
+
+
+This means that the $log[NO_2]$ could actually follow a more complicated dependence on the $log[O_3]$ than the simple linear relationship we obtained above.
+
+Lastly, it's worth mentioning that the elevation of the control station may have an influence on the measured concentration of the reactants.
+
+Indeed, the height of the mixing layer could affect the conditions (i.e. temperature, humidity, pressure, turbulence, etc.) in which the chemical and physical processes take place.
+
+Let's have a look at the data to sort out all of this:
+
+<center>
+<h4 style = "font-family: Ubuntu"><span style="color:#E95420">Data collection and exploration</span></h4>
+</center>
+
+The dataset <code>madrid_2018_mod.csv</code> contains $576$ observations for the hourly averaged concentrations of several pollutants, measured by different stations, plus the elevation of the corresponding station. We are only interested in the concentration of $NO$, $O_3$ and $NO_2$.
+
+We are going to treat the observations as **independent**, since chemical concentrations, thermodynamically, are state variables. This means that their value is a function only of the current state of the system (in the case of a gas, concentration is a function of temperature, pressure, volume, and concentrations of other reacting gases), and is independent of the values at previous times (i.e. the "history" of the gas itself).
+
+<div class = "small">
+```{r}
+train = read.csv("madrid_2018_mod.csv")
+knitr::kable(align = "c", format = "markdown", train[1:10,c(2,8,9,11,17,18)])
+```
+</div>
+
+The concentrations of $NO$, $O_3$, $NO_2$ are all expressed in $\mu g/m^3$. The elevation of the measuring station is expressed in meters $m$.
+
+We are not going to use the data from all of the 24 measuring stations, especially because in some of them the records relative to the $O_3$ concentrations are completely missing.
+
+In practice, we will use the data from 5 measuring stations, chosen according to the quality of the data, and such that they cover, more or less uniformly, the range of possible elevations (which goes from $\sim 600 \space m$ to $\sim 700 \space m$).
+
+Here are the IDs and elevations of the chosen stations:
+
+- ID 28079016; elevation: $693 \space m$
+- ID 28079008; elevation: $670 \space m$
+- ID 28079035; elevation: $659 \space m$
+- ID 28079027; elevation: $621 \space m$
+- ID 28079056; elevation: $604 \space m$
+
+Let's create the corresponding datasets, each one with $24$ observations:
+
+```{r}
+train1 = train[train$station == 28079016, c(8,9,11,17)]
+train2 = train[train$station == 28079008, c(8,9,11,17)] 
+train3 = train[train$station == 28079035, c(8,9,11,17)] 
+train4 = train[train$station == 28079027, c(8,9,11,17)] 
+train5 = train[train$station == 28079056, c(8,9,11,17)]
+```
+
+We will now fill the $NAs$ using the median of the corresponding column:
+
+```{r}
+fillna = function(data){
+  for (i in 1:ncol(data)){
+    data[is.na(data[,i]),i] = median(data[,i], na.rm = TRUE)
+  }
+  return(data)
+}
+
+train1 = fillna(train1); 
+train2 = fillna(train2); 
+train3 = fillna(train3);
+train4 = fillna(train4); 
+train5 = fillna(train5); 
+```
+
+Then, we will compute the logarithmic concentrations for the pollutants:
+
+```{r}
+train1$logNO = log(train1$NO); train1$logNO_2 = log(train1$NO_2); train1$logO_3 = log(train1$O_3)
+train2$logNO = log(train2$NO); train2$logNO_2 = log(train2$NO_2); train2$logO_3 = log(train2$O_3)
+train3$logNO = log(train3$NO); train3$logNO_2 = log(train3$NO_2); train3$logO_3 = log(train3$O_3)
+train4$logNO = log(train4$NO); train4$logNO_2 = log(train4$NO_2); train4$logO_3 = log(train4$O_3)
+train5$logNO = log(train5$NO); train5$logNO_2 = log(train5$NO_2); train5$logO_3 = log(train5$O_3)
+
+train = rbind.data.frame(train1, train2, train3, train4, train5)
+```
+
+We can now show some visualizations. For simplicity, we will only plot data for the collective dataset (all the 5 stations together)
+
+<center>
+```{r echo=FALSE}
+library(ggplot2)
+require(gridExtra, quietly = TRUE)
+
+plot1 = qplot(train$logNO, train$logNO_2, alpha = 100, fill = I("blue"), col = "blue") + theme(legend.position = "none")
+plot2 = qplot(train$logO_3, train$logNO_2, alpha = 100, fill = I("red"), col = "red") + theme(legend.position = "none")
+
+grid.arrange(plot1, plot2, ncol = 2)
+```
+</center>
+
+We can see that, as we might have expected, while the $log[NO_2]$ follows a linear relation with the $log[NO]$, it doesn't follow a linear relation with the $log[O_3]$, since there are more complicated processes leading the concentration of the Ozone.
+
+However, the $log[NO_2]$ seems to show a good linear correlation with the $[O_3]$
+
+<center>
+```{r echo=FALSE}
+qplot(train$O_3, train$logNO_2, alpha = 100, fill = I("green"), col = "green") + theme(legend.position = "none")
+```
+</center>.
+
+We can therefore model the relation among the reactants as:
+
+\[
+Y = a_1 X_1 + a_2 X_2 + b
+\]
+
+where $Y = \text{log}[NO_2]$, $X_1 = \text{log}[NO]$, $X_2 = [O_3]$
+
+<center>
+<h4 style = "font-family: Ubuntu"><span style="color:#E95420">Theoretical framework</span><br><br><span style="color:darkgrey">Statistical<br> models</span></h4>
+</center>
+
+<center>
+<p><span style="color:#77216F"><b>Frequentist modeling</b></span></p>
+</center>
+
+The frequentist model we are going to use will follow two opposite approaches: the **pooled regression** (i.e. a single regression model for all the observations together, independently from the measuring station), and the **non-pooled regression** (i.e. a different regression model for each one of the measuring station).
+
+The pooled approach finds its reasons in the fact that all the observations are, after all, related to the same quantities, so it makes sense to put them together in order to have the largest possible amount of data to fit our model.
+
+The non-pooled approach finds its reasons in the fact that, as we have already noticed, the measuring stations are located at different heights, and use different sensors, so it might make sense to treat them differently.
+
+<center>
+**Pooled regression**
+</center>
+<br>
+
+In the **pooled** case we have a single classical regression model:
+
+\[
+Y_i = a_{1} X_{i,1} + a_{2} X_{i,2} + b + \epsilon
+\]
+
+where $Y = \text{log}[NO_2]$, $X_1 = \text{log}[NO]$, $X_2 =[O_3]$, and $\epsilon \sim N(0,\sigma^2)$.
+
+with the likelihood
+
+\[
+L(a_1, a_2, b, \sigma^2) = \frac{1}{(2 \pi \sigma^2)^{n/2}} e^{\displaystyle{-\frac{\sum{[y_i - (a_{1} x_{i,1} + a_{2} x_{i,2} + b)]^2}}{2 \sigma^2}}}
+\]
+
+that we are going to maximize in order to get the MLE estimates of the parameters.
+
+<center>
+**Non-pooled regression**
+</center>
+<br>
+
+In the **non-pooled** case we have a different regression model for each one of the measuring stations, labeled as $s = 1,2,3,4,5$:
+
+\[
+Y_i = a_{s,1} X_{i,1} + a_{s,2} X_{i,2} + b_s + \epsilon
+\]
+
+So, we are going to find the MLE estimates of the parameters for each one of them separately.
+
+<center>
+<p><span style="color:#77216F"><b>Bayesian modeling</b></span></p>
+</center>
+
+In the bayesian model, on the other hand, we are going to try, at first, a pooled approach, just like in the frequentist case.
+
+<center>
+**Pooled regression**
+</center>
+
+We have, as in the frequentist case:
+
+\[
+Y_i = a_{1} X_{i,1} + a_{2} X_{i,2} + b + \epsilon
+\]
+
+where $Y = \text{log}[NO_2]$, $X_1 = \text{log}[NO]$, $X_2 =[O_3]$, and $\epsilon \sim N(0,\sigma^2)$.
+
+If we now set:
+
+\[
+\vec{a} = 
+\begin{bmatrix}
+    a_{1}\\
+    a_{2}\\
+    b\\
+\end{bmatrix}
+\quad \quad \quad
+\vec{X} = \begin{bmatrix}
+    X_{i,1}\\
+    X_{i,2}\\
+    1\\
+\end{bmatrix}
+\]
+
+we have
+
+\[
+Y_i = \vec{a}^T \cdot \vec{X_i} + \epsilon = \mu_i + \epsilon
+\]
+
+However, in the bayesian framework, we can now put a prior on $\vec{a}$ and $\sigma$. Opting for **non-informative** priors, we set $\vec{a} \sim N(\vec{\theta_a}, \Sigma_a)$, with
+
+\[
+\vec{\theta_a} = 
+\begin{bmatrix}
+    0\\
+    0\\
+    0\\
+\end{bmatrix}
+\quad \quad \quad \quad
+\tau_a = \Sigma_a^{-1} = 
+\begin{bmatrix}
+    0.001       & 0 & 0 \\
+    0       & 0.001 & 0 \\
+    0       & 0 & 0.001
+\end{bmatrix}
+\]
+
+and $\tau^2 = \frac{1}{\sigma^2} \sim Gamma(\alpha, \beta)$, with $\alpha = \beta = 0.001$.
+
+<center>
+**Hierarchical model**
+</center>
+<br>
+
+We are now going to use a **hierarchical** bayesian regression model. This approach allows to take into account both the differences and similarities among the measuring stations.
+
+For each **measuring station** $s = 1,2,3,4,5$ we have a regression model, expressed as:
+
+\[
+Y_i = a_{s,1} X_{i,1} + a_{s,2} X_{i,2} + b_s + \epsilon
+\]
+
+where $Y = \text{log}[NO_2]$, $X_1 = \text{log}[NO]$, $X_2 =[O_3]$, as already said, and $\epsilon \sim N(0,\sigma^2)$.
+
+If we now set:
+
+\[
+\vec{a_s} = 
+\begin{bmatrix}
+    a_{s,1}\\
+    a_{s,2}\\
+    b_s\\
+\end{bmatrix}
+\quad \quad \quad
+\vec{X} = \begin{bmatrix}
+    X_{i,1}\\
+    X_{i,2}\\
+    1\\
+\end{bmatrix}
+\]
+
+we have
+
+\[
+Y_i = \vec{a_s}^T \cdot \vec{X_i} + \epsilon = \mu_i + \epsilon
+\]
+
+This seems to be the bayesian version of the non-pooled regression, where we had a different set of parameters $\vec{a_s}$ for each one of the measuring stations, taking into account the differences among them, but not the similarities.
+
+However, we now put a common prior on all the $\vec{a_s}$ and a prior on $\sigma$, setting $\vec{a} \sim N(\vec{\theta_a}, \Sigma_a)$, and $\tau^2 = \frac{1}{\sigma^2} \sim Gamma(\alpha, \beta)$, with $\alpha = \beta = 0.001$.
+
+This means "pulling" all of the $\vec{a}_s$ towards a common mean, though still allowing them to be different from each other.
+
+We have then the (hyper)priors $\vec{\theta_a} \sim N(\vec{\theta_t}, \Sigma_t)$, and $\tau_a = \Sigma_a^{-1} \sim Wishart(\phi, \nu)$, with
+
+\[
+\vec{\theta_t} = 
+\begin{bmatrix}
+    0\\
+    0\\
+    0\\
+\end{bmatrix}
+\quad \quad \quad \quad
+\tau_t = \Sigma_t^{-1} = 
+\begin{bmatrix}
+    0.001       & 0 & 0 \\
+    0       & 0.001 & 0 \\
+    0       & 0 & 0.001
+\end{bmatrix}
+\]
+
+while for the Wishart distribution we have $\phi = 3$ degrees of freedom and scale matrix:
+
+\[
+\nu = 
+\begin{bmatrix}
+    1       & 0 & 0 \\
+    0       & 1 & 0 \\
+    0       & 0 & 1
+\end{bmatrix}
+\]
+
+
+<center>
+**Hierarchical model (with group-level predictors)**
+</center>
+<br>
+
+Lastly, we are going to use a **hierarchical** bayesian regression model **with group-level predictors**, which provides different levels of regression. This approach, once again, allows to take into account both the differences and similarities among the measuring stations, but also the information linked to their elevations.
+
+The **first level** is defined this way: for each **measuring station** $s = 1,2,3,4,5$ we have an **observation-level** regression model, expressed as:
+
+\[
+Y_i = \vec{a_s}^T \cdot \vec{X_i} + \epsilon = \mu_i + \epsilon
+\]
+
+Once again, we are going to opt for **non-informative** priors. 
+
+We can put a prior on $\vec{a_s}$ and $\sigma$, setting $\vec{a} \sim N(\vec{\theta_a}, \Sigma_a)$, and $\tau^2 = \frac{1}{\sigma^2} \sim Gamma(\alpha, \beta)$, with $\alpha = \beta = 0.001$.
+
+Lastly, we can include in the model additional information, related to the **elevation** of the measuring stations, which might have an influence on the measured concentrations, as discussed in the chemico-physical modeling section.
+
+The **second level** is indeed expressed as a **group-level** regression:
+
+\[
+\vec{\theta}_a = \vec{c} \cdot h_s + \vec{d} + \vec{\eta}
+\]
+
+where $h_s$ is the height of the measuring station $s$, and is therefore common to all the observations of the same group for $s = 1,2,3,4,5$, while $\vec{\eta} \sim N(\vec{0}, \Sigma_a)$, and lastly $\vec{c}$ and $\vec{d}$ are the same for all the groups.
+
+We have then the (hyper)priors $\vec{c} \sim N(\vec{\theta_c}, \Sigma_c)$, $\vec{d} \sim N(\vec{\theta_d}, \Sigma_d)$, $\tau_a = \Sigma_a^{-1} \sim Wishart(\phi, \nu)$, with
+
+\[
+\vec{\theta_c} = 
+\begin{bmatrix}
+    0\\
+    0\\
+    0\\
+\end{bmatrix}
+\quad \quad \quad
+\vec{\theta_d} = \begin{bmatrix}
+    0\\
+    0\\
+    0\\
+\end{bmatrix}
+\]
+
+and 
+
+\[
+\tau_c = \Sigma_c^{-1} = 
+\begin{bmatrix}
+    0.001       & 0 & 0 \\
+    0       & 0.001 & 0 \\
+    0       & 0 & 0.001
+\end{bmatrix}
+\quad \quad \quad
+\tau_d = \Sigma_d^{-1} = 
+\begin{bmatrix}
+    0.001       & 0 & 0 \\
+    0       & 0.001 & 0 \\
+    0       & 0 & 0.001
+\end{bmatrix}
+\]
+
+while for the Wishart distribution we have $\phi = 3$ degrees of freedom and scale matrix:
+
+\[
+\nu = 
+\begin{bmatrix}
+    1       & 0 & 0 \\
+    0       & 1 & 0 \\
+    0       & 0 & 1
+\end{bmatrix}
+\]
+
+<center>
+<p><span style="color:#77216F"><b>Model comparison</b></span></p>
+</center>
+
+In the bayesian modeling context, model comparison can be done using the **Deviance Information Criterion**. The relevant quantity here is the **DIC**, computed as:
+
+\[
+DIC = \bar{D} + 2p_D
+\]
+
+where $\bar{D}$ is the **mean deviance**, and $p_D$ is the effective number of parameters.
+
+The deviance is defined, up to an additive constant, as:
+
+\[
+D(\vec{\theta}) = -2 \space \text{log}(p(\vec{y} | \vec{\theta}))
+\]
+
+where $p(\vec{y}|\vec{\theta})$ is the likelihood.
+
+The idea is that the lower the value of the DIC, the better the performance of the model.
+
+<center>
+<h4 style = "font-family: Ubuntu"><span style="color:#E95420">Frequentist analysis</span></h4>
+</center>
+
+<center>
+**Pooled regression**
+</center>
+<br>
+
+We are going to perform a linear regression in the **pooled** case:
+
+```{r}
+# Train model
+model = lm(logNO_2 ~ logNO + O_3, data = train)
+```
+
+The summary of the model is:
+
+<center>
+```{r, echo = FALSE}
+summary(model)
+```
+</center>
+
+We can now compute the $R^2$ and $RMSE$ for the predictions of the concentrations, instead of the log-concentrations:
+
+```{r}
+# Predict
+
+y = predict(model, newdata = train); y = exp(y)
+SSE = sum((y - train$NO_2)^2); SST = sum((mean(train$NO_2) - train$NO_2)^2)
+R2 = 1 - SSE/SST
+RMSE = sqrt(mean((y - train$NO_2)^2))
+```
+
+<center>
+```{r, echo = FALSE}
+cat(sprintf("R² = %f ; RMSE = %f", R2, RMSE))
+```
+</center>
+
+<center>
+**Non-pooled regression**
+</center>
+<br>
+
+We are now going to do the same in the **un-pooled** case:
+
+```{r}
+# Linear regression function
+
+linear_regression = function(train){
+  
+  model = lm(logNO_2 ~ logNO + O_3, data = train)
+  
+  y = predict(model, newdata = train); y = exp(y)
+  SSE = sum((y - train$NO_2)^2); SST = sum((mean(train$NO_2) - train$NO_2)^2)
+  R2 = 1 - SSE/SST
+  RMSE = sqrt(mean((y - train$NO_2)^2))
+  
+  return(c(R2, RMSE))
+}
+
+
+# Result
+
+result = rbind(linear_regression(train1), linear_regression(train2),
+           linear_regression(train3), linear_regression(train4),
+           linear_regression(train5))
+```
+
+<center>
+```{r, echo = FALSE}
+cat(sprintf("R² = %f, R² = %f, R² = %f, R² = %f, R² = %f", result[1,1], result[2,1], result[3,1], result[4,1], result[5,1]))
+cat(sprintf("RMSE = %f, RMSE = %f, RMSE = %f, RMSE = %f, RMSE = %f", result[1,2], result[2,2], result[3,2], result[4,2], result[5,2]))
+```
+</center>
+
+<center>
+<h4 style = "font-family: Ubuntu"><span style="color:#E95420">Bayesian analysis</span></h4>
+</center>
+
+<center>
+**Pooled regression**
+</center>
+<br>
+
+The first model we are going to define is a bayesian non-hierarchical model.
+
+```{r, results = "hide", message = FALSE, warning = FALSE}
+library(rjags, quietly = TRUE, verbose = FALSE, warn.conflict = FALSE)
+library(runjags, quietly = TRUE, verbose = FALSE, warn.conflict = FALSE)
+```
+
+```{r, warning = FALSE}
+# Bayesian Model (not hierarchical)
+
+Y = train$logNO_2
+X.1 = train$logNO
+X.2 = train$O_3
+Y_pred = rep(NA, length(X.1))
+
+# The model generates samples from the posterior distribution of the parameters
+# as well as from the posterior predictive distribution of the target variable
+
+bm = "
+model {
+    
+  for (i in 1:length(X.1)){
+    Y[i] ~ dnorm(mu[i], tau2)
+    Y_pred[i] ~ dnorm(mu[i], tau2)
+    mu[i] <- a[1]*X.1[i] + a[2]*X.2[i] + a[3]
+  }
+    
+  a[1:3] ~ dmnorm(theta_a[], Tau2_a[,])
+  tau2 ~ dgamma(alpha, beta)
+}"
+
+# Data
+
+j.data = list(Y = Y,
+             X.1 = X.1,
+             X.2 = X.2,
+             Y_pred = Y_pred,
+             alpha = 0.001,
+             beta = 0.001,
+             theta_a = c(0,0,0),
+             Tau2_a = 0.001*diag(3)
+             )
+
+# Initial values
+
+j.init = list(
+  list(a = c(-3,-3,-3), tau2 = 1.5),
+  list(a = c(0,0,0), tau2 = 1),
+  list(a = c(3,3,3), tau2 = 1.5)
+)
+```
+
+```{r, results = "hide", message = FALSE, warning = FALSE}
+# Execution
+fit = run.jags(model = bm, monitor = c("a", "tau2", "Y_pred", "DIC"), data = j.data, inits = j.init, sample = 10000, n.chains = 3, thin = 2, burnin = 1000, separate.chains = TRUE)
+```
+
+Let's have a look at the summaries for the distributions of the parameters:
+
+<center>
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+output = summary(fit)
+output[1:4,c(4,5,1,3,11)]
+```
+</center>
+
+We can also check the summaries for a few posterior predictive distributions:
+
+<center>
+```{r, echo = FALSE}
+output[5:9,c(4,5,1,3,11)]
+```
+</center>
+
+Then, we show the traceplots, density plots, autocorrelation plots, and running means plots:
+
+```{r, results = "hide", message = FALSE, warning = FALSE}
+library(ggmcmc, quietly = TRUE, verbose = FALSE, warn.conflict = FALSE)
+```
+```{r, echo = FALSE, warning = FALSE}
+chain = as.mcmc.list(fit)
+wrapper = ggs(chain[,1:4])
+plot1 = ggs_traceplot(wrapper)
+plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+plot1 = ggs_autocorrelation(wrapper)
+plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+
+We can see that all of the traceplots show a good mixing among the three chains, and density plots look consistent with each other as well. Moreover, the autocorrelation plots show a very low autocorrelation in the chains, as soon as the number of iterations gets reasonably high, and the running means plots soon reach stability. 
+
+Lastly, the $\hat{R}$ (i.e. the potential scale reduction factor **psrf** of the Gelman-Rubin statistics), which compares the within-chain variability and the between-chain variability, is sufficiently close to one for all the parameters.
+
+In other words, there are no signs pointing to a lack of convergence.
+
+Let's show the $RMSE$ and $DIC$
+
+```{r}
+# Linear regression function
+bayesian_regression = function(train){
+  
+  y = as.vector(output[5:nrow(output), "Mean"])
+  y = exp(y)
+  RMSE = sqrt(mean((y - train$NO_2)^2))
+  
+  return(RMSE)
+}
+
+result = bayesian_regression(train)
+```
+
+<center>
+```{r, echo = FALSE}
+cat(sprintf("RMSE = %f, DIC = %f", result, as.double(fit$dic[1])))
+```
+</center>
+
+The $RMSE$ is basically the same of the pooled regression in the frequentist case.
+
+<center>
+**Hierarchical model**
+</center>
+<br>
+
+The next model is a hierarchical model.
+
+```{r, warning = FALSE}
+# Hierarchical Model
+
+Y = cbind(train1$logNO_2, train2$logNO_2, train3$logNO_2, train4$logNO_2, train5$logNO_2)
+X.1 = cbind(train1$logNO, train2$logNO, train3$logNO, train4$logNO, train5$logNO)
+X.2 = cbind(train1$O_3, train2$O_3, train3$O_3, train4$O_3, train5$O_3)
+Y_pred = rep(NA, nrow(X.1)*5)
+
+hm = "
+model{
+  
+  for (k in 1:5){
+    
+    for (i in 1:n){
+      Y[i,k] ~ dnorm(mu[i,k], tau2)
+      Y_pred[i + n*(k-1)] ~ dnorm(mu[i,k], tau2)
+      mu[i,k] <- a[1,k]*X.1[i,k] + a[2,k]*X.2[i,k] + a[3,k]
+    }
+    
+    a[1:3,k] ~ dmnorm(theta_a[], Tau2_a[,])
+  }
+  
+  tau2 ~ dgamma(alpha, beta)
+  theta_a[1:3] ~ dmnorm(theta_t[], Tau2_t[,])
+  Tau2_a[1:3,1:3] ~ dwish(nu[,], psi)
+}"
+
+# Data
+
+j.data = list(Y = Y,
+             X.1 = X.1,
+             X.2 = X.2,
+             n = nrow(X.1),
+             Y_pred = Y_pred,
+             alpha = 0.001,
+             beta = 0.001,
+             theta_t = c(0,0,0),
+             Tau2_t = 0.001*diag(3),
+             psi = 3,
+             nu = diag(3)
+             )
+
+# Initial values
+
+j.init = list(
+  list(a = matrix(rep(-1,15), nrow = 3, ncol = 5), tau2 = 1.5, 
+       theta_a = c(-3,-3,-3), Tau2_a = 1.5*diag(3)),
+  list(a = matrix(rep(0,15), nrow = 3, ncol = 5), tau2 = 1, theta_a = c(0,0,0),
+       Tau2_a = diag(3)),
+  list(a = matrix(rep(1,15), nrow = 3, ncol = 5), tau2 = 1.5, 
+       theta_a = c(3,3,3), Tau2_a = 1.5*diag(3))
+)
+```
+
+```{r, results = "hide", message = FALSE, warning = FALSE}
+# Execution
+fit = run.jags(model = hm, monitor = c("a", "theta_a", "Tau2_a", "tau2", "Y_pred", "DIC"), data = j.data, inits = j.init, sample = 10000, n.chains = 3, thin = 2, burnin = 1000)
+```
+
+We can now check the summaries for the parameters of the first level:
+
+<center>
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+output = summary(fit)
+output[c(1:15,28), c(4,5,1,3,11)]
+```
+</center>
+as well as the second level:
+<center>
+```{r, echo = FALSE}
+output[16:27, c(4,5,1,3,11)]
+```
+</center>
+
+and a few summaries for the posterior predictive distributions:
+
+<center>
+```{r, echo = FALSE}
+output[29:33, c(4,5,1,3,11)]
+```
+</center>
+
+Then let's have a look at the traceplots, density plots, autocorrelation plots and running means plots:
+
+```{r, echo = FALSE}
+chain = as.mcmc.list(fit)
+
+wrapper = ggs(chain[,1:3])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+
+wrapper = ggs(chain[,4:6])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,7:9])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,10:12])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,c(13:15, 28)])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,16:18])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,19:21])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,22:24])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,25:27])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+We observe again a good mixing among the three chains in all the traceplots, and a good consistency among the density plots for different chains. Moreover, the $\hat{R}$ is clearly close to $1$ for all the parameters.
+
+Once again, the autocorrelation plots show a low autocorrelation in the chains, and the running means plots exibit a good behaviour. 
+
+Overall, there are no signs pointing to a lack of convergence.
+
+We can now compute $RMSE$ and $DIC$.
+
+```{r}
+# Linear regression function
+
+bayesian_regression = function(n, train){
+  
+  # Take the section of the output containing the right part of Y_train
+  # (the values of Y_train start at row 29 in the JAGS output)
+  y_start = 29 + nrow(train)*(n-1)
+  y_end = 29 + nrow(train)*n - 1
+  y = as.vector(output[y_start:y_end, "Mean"])
+  y = exp(y)
+  RMSE = sqrt(mean((y - train$NO_2)^2))
+  
+  return(RMSE)
+}
+```
+
+
+```{r}
+# Result
+result = c(bayesian_regression(1, train1),
+           bayesian_regression(2, train2),
+           bayesian_regression(3, train3), 
+           bayesian_regression(4, train4), 
+           bayesian_regression(5, train5),
+           as.double(fit$dic[1]))
+```
+
+<center>
+```{r, echo = FALSE}
+cat(sprintf("RMSE = %f, RMSE = %f, RMSE = %f, RMSE = %f, RMSE = %f\nDIC = %f", result[1], result[2], result[3], result[4], result[5], result[6]))
+```
+</center>
+
+The values of the $RMSE$ are more or less the same we got in the non-pooled frequentist case.
+However, can see a net improvement of the $DIC$ over the previous case (the bayesian non-hierarchical model)
+
+<center>
+**Hierarchical model (with group-level predictors)**
+</center>
+<br>
+
+Lastly, we have a hierarchical model with group-level predictors (the heights of the measuring stations)
+
+```{r, warning = FALSE}
+# Hierarchical Model (with group-level predictors)
+
+Y = cbind(train1$logNO_2, train2$logNO_2, train3$logNO_2, train4$logNO_2, train5$logNO_2)
+X.1 = cbind(train1$logNO, train2$logNO, train3$logNO, train4$logNO, train5$logNO)
+X.2 = cbind(train1$O_3, train2$O_3, train3$O_3, train4$O_3, train5$O_3)
+Y_pred = rep(NA, nrow(X.1)*5)
+h = c(693, 670, 659, 621, 604)
+
+hm = "
+model {
+  for (k in 1:5){
+    
+    for (i in 1:n){
+      Y[i,k] ~ dnorm(mu[i,k], tau2)
+      Y_pred[i + n*(k-1)] ~ dnorm(mu[i,k], tau2)
+      mu[i,k] <- a[1,k]*X.1[i,k] + a[2,k]*X.2[i,k] + a[3,k]
+    }
+    
+    a[1:3,k] ~ dmnorm(theta_a[,k], Tau2_a[,])
+    theta_a[1:3,k] <- c[]*h[k] + d[]
+    
+  }
+  
+  tau2 ~ dgamma(alpha, beta)
+  Tau2_a[1:3,1:3] ~ dwish(nu[,], psi)
+  
+  c[1:3] ~ dmnorm(theta_c[], Tau2_c[,])
+  d[1:3] ~ dmnorm(theta_d[], Tau2_d[,])
+}"
+
+# Data
+
+j.data = list(Y = Y,
+             X.1 = X.1,
+             X.2 = X.2,
+             n = nrow(X.1),
+             Y_pred = Y_pred,
+             h = h,
+             alpha = 0.001,
+             beta = 0.001,
+             theta_c = c(0,0,0),
+             Tau2_c = 0.001*diag(3),
+             theta_d = c(0,0,0),
+             Tau2_d = 0.001*diag(3),
+             psi = 3,
+             nu = diag(3)
+             )
+
+# Initial values
+
+j.init = list(
+  list(a = matrix(rep(-1,15), nrow = 3, ncol = 5), tau2 = 1.5, c = c(-3,-3,-3), 
+       d = c(-3,-3,-3), Tau2_a = 1.5*diag(3)),
+  list(a = matrix(rep(0,15), nrow = 3, ncol = 5), tau2 = 1, c = c(0,0,0), 
+       d = c(0,0,0), Tau2_a = diag(3)),
+  list(a = matrix(rep(1,15), nrow = 3, ncol = 5), tau2 = 1.5, c = c(3,3,3), 
+       d = c(3,3,3), Tau2_a = 1.5*diag(3))
+)
+```
+
+```{r, results = "hide", message = FALSE, warning = FALSE}
+# Execution
+
+fit = run.jags(model = hm, monitor = c("a", "c", "d", "Tau2_a", "tau2", "Y_pred", "DIC"), data = j.data, inits = j.init, sample = 10000, n.chains = 3, thin = 2, burnin = 1000)
+```
+
+Once again, we show the summaries for the first level parameters:
+<center>
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+output = summary(fit)
+output[c(1:15,31), c(4,5,1,3,11)]
+```
+</center>
+
+the second level parameters
+
+<center>
+```{r, echo = FALSE}
+output[16:30, c(4,5,1,3,11)]
+```
+</center>
+
+and the target variable:
+
+<center>
+```{r, echo = FALSE}
+output[32:36, c(4,5,1,3,11)]
+```
+</center>
+
+Then, we show the traceplots, density plots, autocorrelation plots and running means plots:
+
+```{r, echo = FALSE}
+chain = as.mcmc.list(fit)
+
+wrapper = ggs(chain[,1:3])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,4:6])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,7:9])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,10:12])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,13:15])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,16:18])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,19:21])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,22:24])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,25:27])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,28:31])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+In this case, we can observe clear issues in convergence, especially in the plots for the parameters $\vec{c}$ and $\vec{d}$. Indeed, the three chains show a non-optimal mixing, and the density plots are inconsistent with each other as well. 
+
+The values of the $\hat{R}$ are rather distant from $1$, and we notice an excessively high autocorrelation, together with an instability of the running means.
+
+We can now try to check if an increase of the number of iterations and tinning can bring the chains to convergence. However, in order to do so, we will limit the monitored parameters to $\vec{a}$, $\vec{c}$ and $\vec{d}$ (otherwise, the system would crash)
+
+```{r, results = "hide", message = FALSE, warning = FALSE}
+# Execution
+
+fit = run.jags(model = hm, monitor = c("a", "c", "d", "DIC"), data = j.data, inits = j.init, sample = 30000, n.chains = 3, thin = 5, burnin = 5000)
+```
+
+
+```{r, echo = FALSE}
+chain = as.mcmc.list(fit)
+
+wrapper = ggs(chain[,1:3])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,4:6])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,7:9])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,10:12])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,13:15])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,16:18])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+
+wrapper = ggs(chain[,19:21])
+plot1 = ggs_traceplot(wrapper); plot2 = ggs_density(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+plot1 = ggs_autocorrelation(wrapper); plot2 = ggs_running(wrapper)
+grid.arrange(plot1, plot2, ncol = 2)
+```
+
+The chains have now a better mixing, and a better consistency of the density plots. However, the autocorrelation is still very high, and the running means rather unstable.
+
+<center>
+<h4 style = "font-family: Ubuntu"><span style="color:#E95420">Conclusions</span></h4>
+</center>
+
+The bayesian models we have used seem to give reasonably good predictions on the training data. The accuracy, in terms of $RMSE$ is comparable to the one we obtain in the frequentist models. The bayesian model comparison through $DIC$ shows a net improvement in the hierarchical model with respect to the non-hierarchical model. 
+
+The hierarchical model with group level predictors, however shows a poor consistency among the chains for the parameters of the second level regression, together with an high autocorrelation and instability of the running posterior means. 
+
+This issue cannot, apparently, be solved by increasing the number of iterations or the tinning (which provide only light benefits to the results), and might require an Hamiltonian Monte Carlo sampler, which could be capable of a wider exploration of the state space, leading to lower autocorrelation and better overall convergence.
