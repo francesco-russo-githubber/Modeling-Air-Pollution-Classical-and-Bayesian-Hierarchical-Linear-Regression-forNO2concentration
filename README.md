@@ -1,5 +1,5 @@
-# Modeling chemico-physical complexity in the urban atmosphere: classical and bayesian (hierarchical) regression for NO2 concentration
+# Modeling Air Pollution: Classical and Bayesian Hierarchical Linear Regression for NO2 concentration
 <center>
-  <img src="reaction.png" width="600">
-<img src="reaction2.png" width="500">
+  <img src="reaction.png" width="400">
+<img src="reaction2.png" width="200">
 </center>
